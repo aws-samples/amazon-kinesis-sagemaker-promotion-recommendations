@@ -1,0 +1,10 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+cfn/template.yaml
+app
+lambda-*/*.zip
+latest_zip*.txt
+.DS_Store
+scripts/*.local

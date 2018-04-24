@@ -1,0 +1,289 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify,
+# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Description: >
+  This template registers a CloudWatch dashboard.
+
+Parameters:
+  RawBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store raw clickstream data. 
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+  ClickStreamName:
+    Type: String
+  AdDeliveryStream:
+    Type: String
+  RawResponseFnName:
+    Type: String
+  InputClickDeliveryStream:
+    Type: String
+  InputEnhClickDeliveryStream:
+    Type: String
+  EndpointName:
+    Type: String
+  AdLogBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store ad serve events. 
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+  EnhancedClickstreamBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store enhanced clickstream data. 
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+
+Resources: 
+  AdRecDashboard:
+    Type: "AWS::CloudWatch::Dashboard"
+    Properties:
+      DashboardName: !Join ["", ["RecDashboard-", !Ref "AWS::StackName"]]
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+              {
+                  "type": "text",
+                  "x": 0,
+                  "y": 0,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "markdown": "\n# Data input from app\n"
+                  }
+              },
+              {
+                  "type": "metric",
+                  "x": 6,
+                  "y": 6,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "view": "timeSeries",
+                      "stacked": true,
+                      "metrics": [
+                          [ "/aws/sagemaker/Endpoints", "MemoryUtilization", "EndpointName", "${EndpointName}", "VariantName", "AllTraffic" ],
+                          [ ".", "CPUUtilization", ".", ".", ".", "." ]
+                      ],
+                      "region": "${AWS::Region}",
+                      "title": "Endpoint utilization"
+                  }
+              },
+              {
+                  "type": "text",
+                  "x": 0,
+                  "y": 6,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "markdown": "\n# Machine learning\n"
+                  }
+              },
+              {
+                  "type": "metric",
+                  "x": 12,
+                  "y": 0,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "view": "timeSeries",
+                      "stacked": false,
+                      "metrics": [
+                          [ "AWS/Kinesis", "IncomingRecords", "StreamName", "${ClickStreamName}", { "stat": "Sum" } ]
+                      ],
+                      "region": "${AWS::Region}",
+                      "title": "Stream records",
+                      "period": 300
+                  }
+              },
+              {
+                  "type": "metric",
+                  "x": 6,
+                  "y": 0,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "view": "timeSeries",
+                      "stacked": false,
+                      "metrics": [
+                          [ "AWS/Kinesis", "PutRecords.Latency", "StreamName", "${ClickStreamName}" ],
+                          [ ".", "GetRecords.Latency", ".", "." ]
+                      ],
+                      "region": "${AWS::Region}",
+                      "title": "Stream latency"
+                  }
+              },
+              {
+                  "type": "metric",
+                  "x": 12,
+                  "y": 6,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "view": "timeSeries",
+                      "stacked": false,
+                      "metrics": [
+                          [ "AWS/SageMaker", "Invocations", "EndpointName", "${EndpointName}", "VariantName", "AllTraffic", { "stat": "Sum" } ],
+                          [ ".", "Invocation4XXErrors", ".", ".", ".", ".", { "stat": "Sum" } ],
+                          [ ".", "Invocation5XXErrors", ".", ".", ".", ".", { "stat": "Sum" } ]
+                      ],
+                      "region": "${AWS::Region}",
+                      "title": "Model usage",
+                      "period": 300
+                  }
+              },
+              {
+                  "type": "text",
+                  "x": 0,
+                  "y": 12,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "markdown": "\n# Delivery Streams\n"
+                  }
+              },
+              {
+                  "type": "metric",
+                  "x": 6,
+                  "y": 12,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "view": "timeSeries",
+                      "stacked": false,
+                      "metrics": [
+                          [ "AWS/Firehose", "DeliveryToS3.Bytes", "DeliveryStreamName", "${AdDeliveryStream}" ],
+                          [ "...", "${InputEnhClickDeliveryStream}" ],
+                          [ "...", "${InputClickDeliveryStream}" ]
+                      ],
+                      "region": "${AWS::Region}",
+                      "title": "Bytes to S3"
+                  }
+              },
+              {
+                  "type": "metric",
+                  "x": 12,
+                  "y": 12,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "view": "timeSeries",
+                      "stacked": false,
+                      "metrics": [
+                          [ "AWS/Firehose", "DeliveryToS3.DataFreshness", "DeliveryStreamName", "${AdDeliveryStream}" ],
+                          [ "...", "${InputClickDeliveryStream}" ],
+                          [ "...", "${InputEnhClickDeliveryStream}" ]
+                      ],
+                      "region": "${AWS::Region}",
+                      "title": "S3 Delivery Latency"
+                  }
+              },
+              {
+                  "type": "text",
+                  "x": 0,
+                  "y": 24,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "markdown": "\n# S3\n"
+                  }
+              },
+              {
+                  "type": "metric",
+                  "x": 6,
+                  "y": 24,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "view": "timeSeries",
+                      "stacked": false,
+                      "metrics": [
+                          [ "AWS/S3", "BucketSizeBytes", "StorageType", "StandardStorage", "BucketName", "${RawBucketName}", { "period": 86400 } ],
+                          [ "...", "${EnhancedClickstreamBucketName}", { "period": 86400 } ],
+                          [ "...", "${AdLogBucketName}", { "period": 86400 } ]
+                      ],
+                      "region": "${AWS::Region}",
+                      "title": "S3 Storage Bytes"
+                  }
+              },
+              {
+                  "type": "text",
+                  "x": 0,
+                  "y": 18,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "markdown": "\n# Lambda\n"
+                  }
+              },
+              {
+                  "type": "metric",
+                  "x": 6,
+                  "y": 18,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "view": "timeSeries",
+                      "stacked": false,
+                      "metrics": [
+                          [ "AWS/Lambda", "Invocations", "FunctionName", "${RawResponseFnName}", { "stat": "Sum" } ],
+                          [ ".", "Errors", ".", ".", { "stat": "Sum" } ],
+                          [ ".", "Throttles", ".", ".", { "stat": "Sum" } ]
+                      ],
+                      "region": "${AWS::Region}",
+                      "title": "Prediction Fn - Invocations",
+                      "period": 300
+                  }
+              },
+              {
+                  "type": "metric",
+                  "x": 12,
+                  "y": 18,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                      "view": "timeSeries",
+                      "stacked": false,
+                      "metrics": [
+                          [ "AWS/Lambda", "Duration", "FunctionName", "${RawResponseFnName}" ]
+                      ],
+                      "region": "${AWS::Region}",
+                      "title": "Prediction Fn - Duration"
+                  }
+              }
+          ]
+        }
+
+
+Outputs:
+  DashboardName:
+    Description: CloudWatch dashboard name
+    Value: !Ref AdRecDashboard

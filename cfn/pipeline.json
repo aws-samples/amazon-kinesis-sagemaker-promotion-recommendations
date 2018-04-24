@@ -1,0 +1,586 @@
+{
+    "Description": "CloudFormation template for creating a data pipeline for retraining the Sagemaker model.",
+    "Outputs": {
+        "PipelineName": {
+            "Description": "Pipeline name",
+            "Value": {
+                "Ref": "RetrainDataPipeline"
+            }
+        }
+    },
+    "Mappings": {
+		"RegionMap": {
+			"us-east-1": {
+				"AMALINUX": "ami-1853ac65"
+			},
+			"us-east-2": {
+				"AMALINUX": "ami-71ca9114"
+			},
+			"us-west-1": {
+				"AMALINUX": "ami-de347abe"
+			},
+			"us-west-2": {
+				"AMALINUX": "ami-d874e0a0"
+			},
+			"ca-central-1" : {
+				"AMALINUX" : "ami-eb20928f"
+			},
+			"eu-west-1": {
+				"AMALINUX": "ami-d41d58a7"
+			},
+			"eu-central-1": {
+				"AMALINUX": "ami-0044b96f"
+			},
+			"eu-west-2" : {
+				"AMALINUX" : "ami-bfe0eadb"
+			},
+			"ap-southeast-1": {
+				"AMALINUX": "ami-7243e611"
+			},
+			"ap-southeast-2": {
+				"AMALINUX": "ami-55d4e436"
+			},
+			"ap-northeast-2": {
+				"AMALINUX": "ami-a04297ce"
+			},
+
+			"ap-northeast-1": {
+				"AMALINUX": "ami-1a15c77b"
+			},
+			"ap-south-1": {
+				"AMALINUX": "ami-cacbbea5"
+			},
+			"sa-east-1": {
+				"AMALINUX": "ami-b777e4db"
+			}
+		}
+    },
+    "Parameters": {
+        "KeyName": {
+            "Description": "Name of an existing EC2 KeyPair to enable SSH to the instances",
+            "Type": "AWS::EC2::KeyPair::KeyName"
+        },
+        "SagemakerRoleArn": {
+            "Type": "String"
+        },
+        "SagemakerImageUri": {
+            "Type": "String"
+        },
+        "GlueTableNameEnhClicks": {
+            "Type": "String"
+        },
+        "ReferenceBucketName": {
+            "Type": "String"
+        },
+        "ModelTrainingBucketName": {
+            "Type": "String"
+        },
+        "ModelOutputBucketName": {
+            "Type": "String"
+        },
+        "PartitionTableName": {
+            "Type": "String"
+        },
+        "EmrRoleName": {
+            "Type": "String"
+        },
+        "EmrEc2ProfileName": {
+            "Type": "String"
+        },
+        "MasterSG": {
+            "Type": "String"
+        },
+        "SnsTopicArn": {
+            "Type": "String"
+        },
+        "FnName": {
+            "Type": "String"
+        },
+        "StreamName": {
+            "Type": "String"
+        },
+        "Subnet": {
+            "Description": "Subnet ID for creating the EMR cluster",
+            "Type": "AWS::EC2::Subnet::Id"
+        },
+        "emrReleaseLabel": {
+            "Default": "emr-5.13.0",
+            "Description": "Release label for the EMR cluster",
+            "Type": "String"
+        }
+    },
+    "Resources": {
+        "DataPipelineRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+               "AssumeRolePolicyDocument": {
+                  "Version" : "2012-10-17",
+                  "Statement": [ {
+                     "Effect": "Allow",
+                     "Principal": {
+                        "Service": [ "elasticmapreduce.amazonaws.com", "datapipeline.amazonaws.com"]
+                     },
+                     "Action": [ "sts:AssumeRole" ]
+                  } ]
+               },
+               "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AWSDataPipelineRole"],
+               "Path": "/"
+            }
+         },
+        "DataPipelineEc2LambdaRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+               "AssumeRolePolicyDocument": {
+                  "Version" : "2012-10-17",
+                  "Statement": [ {
+                     "Effect": "Allow",
+                     "Principal": {
+                        "Service": [ "ec2.amazonaws.com" ]
+                     },
+                     "Action": [ "sts:AssumeRole" ]
+                  } ]
+               },
+               "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforDataPipelineRole"],
+               "Path": "/"
+            }
+         },
+         "DataPipelineEc2LambdaRolePolicyLambdaConfig": {
+            "Type": "AWS::IAM::Policy",
+            "Properties": {
+               "PolicyName": "DataPipelineEc2LambdaRolePolicyLambdaConfig",
+               "PolicyDocument": {
+                  "Version" : "2012-10-17",
+                  "Statement": [ {
+                     "Effect": "Allow",
+                     "Action": "lambda:UpdateFunctionConfiguration",
+                     "Resource": "*"
+                  } ]
+               },
+               "Roles": [ {
+                  "Ref": "DataPipelineEc2LambdaRole"
+               } ]
+            }
+         },
+         "DataPipelineEc2LambdaInstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+              "Path": "/",
+              "Roles": [ {
+                "Ref": "DataPipelineEc2LambdaRole"
+              } ]
+            }
+          },
+        "DataPipelineEc2Role": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+               "AssumeRolePolicyDocument": {
+                  "Version" : "2012-10-17",
+                  "Statement": [ {
+                     "Effect": "Allow",
+                     "Principal": {
+                        "Service": [ "ec2.amazonaws.com" ]
+                     },
+                     "Action": [ "sts:AssumeRole" ]
+                  } ]
+               },
+               "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforDataPipelineRole"],
+               "Path": "/"
+            }
+         },
+        "DataPipelineEc2InstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+              "Path": "/",
+              "Roles": [ {
+                "Ref": "DataPipelineEc2Role"
+              } ]
+            }
+          },
+        "RetrainDataPipeline": {
+            "Type": "AWS::DataPipeline::Pipeline",
+            "Properties": {
+              "Name": "RetrainDataPipeline",
+              "Description": "Pipeline that retrains the recommendation model with fresh data",
+              "Activate": "false",
+              "PipelineObjects": [
+                 {
+                  "Id": "EmrActivityId_qKNze",
+                  "Name": "RetrainEmrActivity",
+                  "Fields": [
+                    {
+                      "Key": "type",
+                      "StringValue": "EmrActivity"
+                    },
+                    {
+                      "Key": "schedule",
+                      "RefValue": "DefaultSchedule"
+                    },
+                    {
+                      "Key": "dependsOn",
+                      "RefValue": "CliActivityClicks"
+                    },
+                    {
+                      "Key": "runsOn",
+                      "RefValue": "EmrClusterId_nLI0C"
+                    },
+                    {
+                      "Key": "step",
+                      "StringValue": {"Fn::Join" : [ "", ["command-runner.jar,spark-submit,--deploy-mode,cluster,--master,yarn,--conf,spark.yarn.submit.waitAppCompletion=true,--executor-memory,8g,s3://", {"Ref": "ReferenceBucketName"}, "/repo/pipeline/retrain.py,", {"Ref": "GlueTableNameEnhClicks"}, ",", {"Ref": "SagemakerRoleArn"}, ",", {"Ref": "SagemakerImageUri"}, ",", {"Ref": "ModelTrainingBucketName"}, ",", {"Ref": "ModelOutputBucketName"}, ",", {"Ref": "ReferenceBucketName"} ] ]}
+                    }
+                  ]
+                },
+                {
+                  "Id": "PropertyId_WkGLr",
+                  "Name": "HiveSiteProperty",
+                  "Fields": [
+                    {
+                      "Key": "type",
+                      "StringValue": "Property"
+                    },
+                    {
+                      "Key": "value",
+                      "StringValue": "com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory"
+                    },
+                    {
+                      "Key": "key",
+                      "StringValue": "hive.metastore.client.factory.class"
+                    }
+                  ]
+                },
+                {
+                  "Id": "EmrConfigurationId_91pVP",
+                  "Name": "EmrHiveConfiguration",
+                  "Fields": [
+                    {
+                      "Key": "type",
+                      "StringValue": "EmrConfiguration"
+                    },
+                    {
+                      "Key": "classification",
+                      "StringValue": "hive-site"
+                    },
+                    {
+                      "Key": "property",
+                      "RefValue": "PropertyId_WkGLr"
+                    }
+                  ]
+                },
+                {
+                  "Id": "EmrConfigurationId_7AI5j",
+                  "Name": "EmrSparkConfiguration",
+                  "Fields": [
+                    {
+                      "Key": "type",
+                      "StringValue": "EmrConfiguration"
+                    },
+                    {
+                      "Key": "classification",
+                      "StringValue": "spark-hive-site"
+                    },
+                    {
+                      "Key": "property",
+                      "RefValue": "PropertyId_WkGLr"
+                    }
+                  ]
+                },
+                {
+                  "Id": "DdbOutputData",
+                  "Name": "DdbOutputData",
+                  "Fields": [
+                    {
+                      "Key": "type",
+                      "StringValue": "S3DataNode"
+                    },
+                    {
+                      "Key": "schedule",
+                      "RefValue": "DefaultSchedule"
+                    },
+                    {
+                      "Key": "directoryPath",
+                      "StringValue": {"Fn::Join" : [ "", ["s3://", {"Ref": "ReferenceBucketName"}, "/ddb-out/"] ]}
+                    }
+                  ]
+                },
+                {
+                  "Id": "ScriptInputData",
+                  "Name": "ScriptInputData",
+                  "Fields": [
+                    {
+                      "Key": "type",
+                      "StringValue": "S3DataNode"
+                    },
+                    {
+                      "Key": "directoryPath",
+                      "StringValue": {"Fn::Join" : [ "", ["s3://", {"Ref": "ReferenceBucketName"}, "/repo/pipeline/"] ]}
+                    }
+                  ]
+                },
+                {
+                  "Id": "Ec2Instance",
+                  "Name": "Ec2Instance",
+                  "Fields": [
+                    {
+                      "Key": "type",
+                      "StringValue": "Ec2Resource"
+                    },
+                    {
+                      "Key": "terminateAfter",
+                      "StringValue": "60 Minutes"
+                    },
+                    {
+                      "Key": "region",
+                      "StringValue": { "Ref": "AWS::Region" }
+                    },
+                    {
+                      "Key": "instanceType",
+                      "StringValue": "t1.micro"
+                    },
+                    {
+                      "Key": "role",
+                      "StringValue": { "Ref": "DataPipelineRole" }
+                    }
+                  ]
+                },
+                {
+                  "Id": "Ec2InstanceForCleanup",
+                  "Name": "Ec2InstanceForCleanup",
+                  "Fields": [
+                    {
+                      "Key": "type",
+                      "StringValue": "Ec2Resource"
+                    },
+                    {
+                      "Key": "terminateAfter",
+                      "StringValue": "60 Minutes"
+                    },
+                    {
+                      "Key": "region",
+                      "StringValue": { "Ref": "AWS::Region" }
+                    },
+                    {
+                      "Key": "instanceType",
+                      "StringValue": "t1.micro"
+                    },
+                    {
+                      "Key": "role",
+                      "StringValue": { "Ref": "DataPipelineRole" }
+                    },
+                    {
+                      "Key": "associatePublicIpAddress",
+                      "StringValue": "true"
+                    },
+                    {
+                      "Key": "keyPair",
+                      "StringValue": {
+                            "Ref": "KeyName"
+                      }
+                    },
+                    {
+                      "Key": "runAsUser",
+                      "StringValue": "ec2-user"
+                    },
+                    {
+                      "Key": "imageId",
+                      "StringValue": {"Fn::FindInMap" : ["RegionMap", {"Ref" : "AWS::Region"}, "AMALINUX"]}
+                    },
+                    {
+                      "Key": "resourceRole",
+                      "StringValue": { "Ref": "DataPipelineEc2LambdaInstanceProfile" }
+                    }
+                  ]
+                },
+                {
+                  "Id": "CliActivityClicks",
+                  "Name": "CliActivityClicks",
+                  "Fields": [
+                    {
+                      "Key": "stage",
+                      "StringValue": "true"
+                    },
+                    {
+                      "Key": "type",
+                      "StringValue": "ShellCommandActivity"
+                    },
+                    {
+                      "Key": "runsOn",
+                      "RefValue": "Ec2Instance"
+                    },
+                    {
+                      "Key": "command",
+                      "StringValue": {"Fn::Join" : [ "", ["(sudo yum -y update aws-cli) && (aws --region ", {"Ref": "AWS::Region"}, " dynamodb scan --table-name ", {"Ref": "PartitionTableName"}, " --filter-expression \"IsProcessed = :v2\" --expression-attribute-values '{ \":v2\": {\"N\": \"0\"}}' >  ${OUTPUT1_STAGING_DIR}/unprocessed.json )"] ]}
+                    },
+                    {
+                      "Key": "output",
+                      "RefValue": "DdbOutputData"
+                    }
+                  ]
+                },
+                {
+                  "Id": "CliActivityCleanup",
+                  "Name": "CliActivityCleanup",
+                  "Fields": [
+                    {
+                      "Key": "stage",
+                      "StringValue": "true"
+                    },
+                    {
+                      "Key": "type",
+                      "StringValue": "ShellCommandActivity"
+                    },
+                    {
+                      "Key": "runsOn",
+                      "RefValue": "Ec2InstanceForCleanup"
+                    },
+                    {
+                      "Key": "dependsOn",
+                      "RefValue": "EmrActivityId_qKNze"
+                    },
+                    {
+                      "Key": "command",
+                      "StringValue": {"Fn::Join" : [ "", ["bash ${INPUT1_STAGING_DIR}/update-endpoint.sh ", {"Ref": "AWS::Region"}, " ", {"Ref": "ModelOutputBucketName"}, " ",{"Ref": "FnName"}, " ", {"Ref": "ReferenceBucketName"}, " ",{"Ref": "PartitionTableName"}, " ",{"Ref": "StreamName"}, " ",{"Ref": "SnsTopicArn"}] ]}
+                    },
+                    {
+                      "Key": "input",
+                      "RefValue": "ScriptInputData"
+                    }
+                  ]
+                },
+                {
+                  "Id": "DefaultSchedule",
+                  "Name": "Every 1 day",
+                  "Fields": [
+                    {
+                      "Key": "startAt",
+                      "StringValue": "FIRST_ACTIVATION_DATE_TIME"
+                    },
+                    {
+                      "Key": "type",
+                      "StringValue": "Schedule"
+                    },
+                    {
+                      "Key": "period",
+                      "StringValue": "1 days"
+                    }
+                  ]
+                },
+                {
+                  "Id": "Default",
+                  "Name": "Default",
+                  "Fields": [
+                    {
+                      "Key": "type",
+                      "StringValue": "Default"
+                    },
+                    {
+                      "Key": "scheduleType",
+                      "StringValue": "cron"
+                    },
+                    {
+                      "Key": "failureAndRerunMode",
+                      "StringValue": "CASCADE"
+                    },
+                    {
+                      "Key": "role",
+                      "StringValue": { "Ref": "DataPipelineRole" }
+                    },
+                    {
+                      "Key": "resourceRole",
+                      "StringValue": { "Ref": "DataPipelineEc2InstanceProfile" }
+                    },
+                    {
+                      "Key": "pipelineLogUri",
+                      "StringValue": {"Fn::Join" : [ "", ["s3://", {"Ref": "ReferenceBucketName"}, "/pipelinelogs/"] ]}
+                    },
+                    {
+                      "Key": "schedule",
+                      "RefValue": "DefaultSchedule"
+                    }
+                  ]
+                },
+                {
+                  "Id": "EmrClusterId_nLI0C",
+                  "Name": "RetrainEmrCluster",
+                  "Fields": [
+                    {
+                      "Key": "terminateAfter",
+                      "StringValue": "2 Hours"
+                    },
+                    {
+                      "Key": "releaseLabel",
+                        "StringValue": {
+                            "Ref": "emrReleaseLabel"
+                        }
+                    },
+                    {
+                      "Key": "masterInstanceType",
+                      "StringValue": "m4.2xlarge"
+                    },
+                    {
+                      "Key": "coreInstanceType",
+                      "StringValue": "r4.2xlarge"
+                    },
+                    {
+                      "Key": "coreInstanceCount",
+                      "StringValue": "4"
+                    },
+                    {
+                      "Key": "keyPair",
+                      "StringValue": {
+                            "Ref": "KeyName"
+                      }
+                    },
+                    {
+                      "Key": "enableDebugging",
+                      "StringValue": "true"
+                    },
+                    {
+                      "Key": "applications",
+                      "StringValue": "spark"
+                    },
+                    {
+                      "Key": "applications",
+                      "StringValue": "hive"
+                    },
+                    {
+                      "Key": "applications",
+                      "StringValue": "pig"
+                    },
+                    {
+                      "Key": "role",
+                      "StringValue": { "Ref": "EmrRoleName" }
+                    },
+                    {
+                      "Key": "resourceRole",
+                      "StringValue": { "Ref": "EmrEc2ProfileName" }
+                    },
+                    {
+                      "Key": "additionalMasterSecurityGroupIds",
+                      "StringValue": { "Ref": "MasterSG" }
+                    },
+                    {
+                      "Key": "subnetId",
+                      "StringValue": { "Ref": "Subnet" }
+                    },
+                    {
+                      "Key": "type",
+                      "StringValue": "EmrCluster"
+                    },
+                    {
+                      "Key": "schedule",
+                      "RefValue": "DefaultSchedule"
+                    },
+                    {
+                      "Key": "configuration",
+                      "RefValue": "EmrConfigurationId_91pVP"
+                    },
+                    {
+                      "Key": "configuration",
+                      "RefValue": "EmrConfigurationId_7AI5j"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+    }
+}

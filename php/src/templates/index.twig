@@ -1,0 +1,100 @@
+{% include 'header.twig' %}
+
+{# 
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify,
+# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#}
+
+<p><a href="{{ app.request.baseUrl ~ '/account' }}" class="btn"><b class="icon-pencil"></b>Account</a></p>
+
+<div class="hero-unit">
+    <h3>Accessories</h3>
+    <div class="row-fluid">
+    <img src='../assets/img/watch.png'><p>Watch</p><p>$125.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=125&Category=100020213&Item=ac26975cf46eae9898b7d906bdfbbf99ce7813ffc3f9b7c42163a55e02e81516&Desc=Watch' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/sunglasses.png'><p>Sunglasses</p><p>$75.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=75&Category=100020213&Item=81dc9575e12600c50cca637701215bdf3d923eebcb08cc4c67fd928103c4931a&Desc=Sunglasses' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/bowtie.png'><p>Bowtie</p><p>$45.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=45&Category=100020213&Item=154f65f908a7406826ed6408a156db1bdb82f8f514dffc9c344dfba31ace8520&Desc=Bowtie' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/gloves.png'><p>Gloves</p><p>$7.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=7&Category=100020213&Item=19e54986c139665f0bc1aee6073618a4dd2cbdbe577a1b51989b2cfd96f43eb3&Desc=Gloves' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/handbag.png'><p>Handbag</p><p>$105.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=105&Category=100020213&Item=ea760083815933f4f181ffd989b03fb5398b127dc194c08e89b2f35edf11f21f&Desc=Handbag' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/socks.png'><p>Socks</p><p>$5.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=5&Category=100020213&Item=10698b6475abd54c5c6d1724d6f51cb795234c23a23daf1bdef1886a8ae522b5&Desc=Socks' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    </div>
+    <h3>Clothes</h3>
+    <div class="row-fluid">
+    <img src='../assets/img/shirt-yellow.png'><p>Yellow shirt</p><p>$17.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=17&Category=174201&Item=6f529242bbc6dfa46a35f7b9d37a32cd11a0838f204c24f95615d29d2d363ada&Desc=Shirt' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/shirt-green.png'><p>Green shirt</p><p>$13.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=13&Category=174201&Item=234e511622f9e1377531dd2df04911360b2d90e18af5b9f78dc58e7d605d4136&Desc=Shirt' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/shirt-blue.png'><p>Blue shirt</p><p>$25.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=25&Category=174201&Item=ff1bd73f19ccc09842c0b0ad14ff0402e91324cdf924aa3a6a39bfd8c2d9acb3&Desc=Shirt' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/Skirt.png'><p>Skirt</p><p>$65.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=65&Category=174201&Item=66863da8db7e6c51bed5eccc89a91f756e4baee85ad4469e15f0a0cc70f7afdb&Desc=Skirt' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/shirt-black.png'><p>Black shirt</p><p>$25.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=25&Category=174201&Item=26467f203f42913b6bc575fd4adc89ad66c5db082c8ab90cfc7bb3a5ab1b0ddc&Desc=Shirt' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    </div>
+    <h3>Hats</h3>
+    <div class="row-fluid">
+    <img src='../assets/img/cap.png'><p>Cap</p><p>$9.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=9&Category=113501&Item=458f4e0daefe1808fd738aaa6613ef3d365d44865606f40c56b3fb554b8fd248&Desc=Cap' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/hat.png'><p>Hat</p><p>$15.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=15&Category=113501&Item=eb49b22a1bbd88fbdf614e3494326c3d2dd853104bff8c5adeaa99a143bdf7d2&Desc=Hat' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/w-hat.png'><p>Fun hat</p><p>$15.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=15&Category=113501&Item=8497a9dd86ab3b7f192f2e65994b972787bdcdc6b501b48dab19eaa4737ca148&Desc=WhizHat' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    </div>
+    <h3>Outerwear and Formalwear</h3>
+    <div class="row-fluid">
+    <img src='../assets/img/jacket.png'><p>Jacket</p><p>$95.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=95&Category=164401&Item=8bf8f87492a799528235c04bb18ff2d12db5058ff6e9a07041739be984a72df9&Desc=Jacket' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/suit-black.png'><p>Suit</p><p>$415.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=415&Category=164401&Item=4740b6c83b6e12e423297493f234323ffd1c991f3d4496a71daebbef01d6dcf0&Desc=Suit' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/ties.png'><p>Ties</p><p>$35.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=35&Category=164401&Item=b042951fdb45ddef8ba6075ced0e5885bc2fa4c4470bf790432e606d85032017&Desc=Ties' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    </div>
+    <h3>Shoes</h3>
+    <div class="row-fluid">
+    <img src='../assets/img/sandals.png'><p>Sandals</p><p>$39.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=39&Category=141601&Item=21a509189fb0875c3732590121ff3fc86da770b0628c1812e82f023ee2e0f683&Desc=Sandals' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/shoes.png'><p>Shoes</p><p>$32.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=32&Category=141601&Item=f3c93baa0cf4430849611cedb3a40ec4094d1d370be8417181da5d13ac99ef3d&Desc=Shoes' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    <img src='../assets/img/sneakers.png'><p>Sneakers</p><p>$85.00</p>
+    <p><a href="{{ app.request.baseUrl ~ '/buy?Price=85&Category=141601&Item=0708f809769d6eb4f49d3f6cf6c09e69c754f1337a21b0d5d5a0d0f2c712271e&Desc=Sneakers' }}" class="btn"><b class="icon-pencil"></b>Buy this item</a></p>
+    <hr>
+    </div>
+</div>
+
+{% include 'footer.twig' %}

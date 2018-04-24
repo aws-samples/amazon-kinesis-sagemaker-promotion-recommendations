@@ -1,0 +1,445 @@
+{
+    "Description": "CloudFormation template for creating an EMR cluster with Spark and an auto-scaling policy.",
+    "Outputs": {
+        "IPAddress": {
+            "Description": "IP address of EMR cluster MasterNode",
+            "Value": {
+                "Fn::GetAtt": [
+                    "EMRAdRecCluster",
+                    "MasterPublicDNS"
+                ]
+            }
+        },
+        "EmrRoleArn": {
+            "Description": "ARN of EMR role",
+            "Value": {
+                "Fn::GetAtt": [
+                    "EmrRole",
+                    "Arn"
+                ]
+            }
+        },
+        "EmrEc2RoleArn": {
+            "Description": "ARN of EMR EC2 role",
+            "Value": {
+                "Fn::GetAtt": [
+                    "EmrEc2Role",
+                    "Arn"
+                ]
+            }
+        },
+        "EmrRoleName": {
+            "Description": "Name of EMR role",
+            "Value": {
+                "Ref": "EmrRole"
+            }
+        },
+        "EmrEc2RoleName": {
+            "Description": "Name of EMR EC2 role",
+            "Value": {
+                "Ref": "EmrEc2Role"
+            }
+        },
+        "EmrEc2ProfileName": {
+            "Description": "Name of EMR EC2 instance profile",
+            "Value": {
+                "Ref": "EmrEc2InstanceProfile"
+            }
+        },
+        "MasterSG": {
+            "Description": "ID of master security group for EMR cluster",
+            "Value": {
+                "Fn::GetAtt": [
+                    "MasterSecurityGroup",
+                    "GroupId"
+                ]
+            }
+        }
+    },
+    "Parameters": {
+
+        "MaxCapacity": {
+            "Default": "10",
+            "Description": "Maximum number of core instances",
+            "Type": "Number"
+        },
+        "AllowedCidrIngress": {
+            "Default": "0.0.0.0/0",
+            "ConstraintDescription": "Must be a valid CIDR range",
+            "Type": "String",
+            "MinLength": "9",
+            "MaxLength": "18",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+        },
+        "MinCapacity": {
+            "Default": "2",
+            "Description": "Minimum number of core instances",
+            "Type": "Number"
+        },
+        "CoreInstanceCount": {
+            "Default": "3",
+            "Description": "Number of core instances",
+            "Type": "Number"
+        },
+        "CoreInstanceType": {
+            "Default": "c3.2xlarge",
+            "Description": "Instance Type of the core node",
+            "Type": "String"
+        },
+        "EMRClusterName": {
+            "Default": "AdRecCluster",
+            "Description": "Cluster name for the EMR",
+            "Type": "String"
+        },
+        "EMRLogDir": {
+            "Description": "Log Dir for the EMR cluster",
+            "Type": "String"
+        },
+        "KeyName": {
+            "Description": "Name of an existing EC2 KeyPair to enable SSH to the instances",
+            "Type": "AWS::EC2::KeyPair::KeyName"
+        },
+        "ProjectTag": {
+            "Default": "AdRec",
+            "Description": "Tag for cost allocation",
+            "Type": "String"
+        },
+
+        "MasterInstanceType": {
+            "Default": "m3.2xlarge",
+            "Description": "Instance Type of the master node",
+            "Type": "String"
+        },
+
+        "Subnet": {
+            "Description": "Subnet ID for creating the EMR cluster",
+            "Type": "AWS::EC2::Subnet::Id"
+        },
+        "VPC": {
+            "Description": "VPC ID for creating the EMR cluster",
+            "Type": "AWS::EC2::VPC::Id"
+        },
+        "emrReleaseLabel": {
+            "Default": "emr-5.12.0",
+            "Description": "Release label for the EMR cluster",
+            "Type": "String"
+        }
+
+
+    },
+    "Resources": {
+
+        "EMRAdRecCluster": {
+            "Properties": {
+                "Applications": [
+                    {
+                        "Name": "Hadoop"
+                    },
+                    {
+                        "Name": "Hive"
+                    },
+                    {
+                        "Name": "Pig"
+                    },
+                    {
+                        "Name": "Spark"
+                    },
+                    {
+                        "Name": "Hue"
+                    },
+                    {
+                        "Name": "Livy"
+                    },
+                    {
+                        "Name": "Presto"
+                    },
+                    {
+                        "Name": "Zeppelin"
+                    }
+                ],
+                "Configurations": [
+                    {
+                        "Classification": "hive-site",
+                        "ConfigurationProperties": {
+                            "hive.metastore.client.factory.class": "com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory"
+
+                        }
+                    },
+                    {
+                        "Classification": "spark-hive-site",
+                        "ConfigurationProperties": {
+                            "hive.metastore.client.factory.class": "com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory"
+                        }
+                    }
+                ],
+                "Instances": {
+                    "AdditionalMasterSecurityGroups": [{
+                        "Fn::GetAtt": [
+                            "MasterSecurityGroup",
+                            "GroupId"
+                        ]
+                    }],
+                    "CoreInstanceGroup": {
+                        "EbsConfiguration": {
+                            "EbsBlockDeviceConfigs": [
+                                {
+                                    "VolumeSpecification": {
+                                        "SizeInGB": "50",
+                                        "VolumeType": "gp2"
+                                    },
+                                    "VolumesPerInstance": "1"
+                                }
+                            ],
+                            "EbsOptimized": "true"
+                        },
+                        "InstanceCount": {
+                            "Ref": "CoreInstanceCount"
+                        },
+                        "InstanceType": {
+                            "Ref": "CoreInstanceType"
+                        },
+                        "Market": "ON_DEMAND",
+                        "Name": "Core Instance",
+                        "AutoScalingPolicy": {
+                            "Constraints": {
+                                "MinCapacity": {
+                                    "Ref": "MinCapacity"
+                                },
+                                "MaxCapacity": {
+                                    "Ref": "MaxCapacity"
+                                }
+                            },
+                            "Rules": [
+                                {
+                                    "Name": "Scale-out",
+                                    "Description": "Scale-out policy",
+                                    "Action": {
+                                        "SimpleScalingPolicyConfiguration": {
+                                            "AdjustmentType": "CHANGE_IN_CAPACITY",
+                                            "ScalingAdjustment": 1,
+                                            "CoolDown": 300
+                                        }
+                                    },
+                                    "Trigger": {
+                                        "CloudWatchAlarmDefinition": {
+                                            "Dimensions": [
+                                                {
+                                                    "Key": "JobFlowId",
+                                                    "Value": "${emr:clusterid}"
+                                                }
+                                            ],
+                                            "EvaluationPeriods": 1,
+                                            "Namespace": "AWS/ElasticMapReduce",
+                                            "Period": 300,
+                                            "ComparisonOperator": "LESS_THAN",
+                                            "Statistic": "AVERAGE",
+                                            "Threshold": 15,
+                                            "Unit": "PERCENT",
+                                            "MetricName": "YARNMemoryAvailablePercentage"
+                                        }
+                                    }
+                                },
+                                {
+                                    "Name": "Scale-in",
+                                    "Description": "Scale-in policy",
+                                    "Action": {
+                                        "SimpleScalingPolicyConfiguration": {
+                                            "AdjustmentType": "CHANGE_IN_CAPACITY",
+                                            "ScalingAdjustment": -1,
+                                            "CoolDown": 300
+                                        }
+                                    },
+                                    "Trigger": {
+                                        "CloudWatchAlarmDefinition": {
+                                            "Dimensions": [
+                                                {
+                                                    "Key": "JobFlowId",
+                                                    "Value": "${emr:clusterid}"
+                                                }
+                                            ],
+                                            "EvaluationPeriods": 1,
+                                            "Namespace": "AWS/ElasticMapReduce",
+                                            "Period": 300,
+                                            "ComparisonOperator": "GREATER_THAN",
+                                            "Statistic": "AVERAGE",
+                                            "Threshold": 75,
+                                            "Unit": "PERCENT",
+                                            "MetricName": "YARNMemoryAvailablePercentage"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "Ec2KeyName": {
+                        "Ref": "KeyName"
+                    },
+                    "Ec2SubnetId": {
+                        "Ref": "Subnet"
+                    },
+                    "MasterInstanceGroup": {
+                        "InstanceCount": "1",
+                        "InstanceType": {
+                            "Ref": "MasterInstanceType"
+                        },
+                        "Market": "ON_DEMAND",
+                        "Name": "Master Instance"
+                    },
+                    "TerminationProtected": "false"
+                },
+                "JobFlowRole": {
+                    "Ref": "EmrEc2InstanceProfile"
+                },
+                "EbsRootVolumeSize": "50",
+                "LogUri": {
+                    "Ref": "EMRLogDir"
+                },
+                "Name": {
+                    "Ref": "EMRClusterName"
+                },
+                "ReleaseLabel": {
+                    "Ref": "emrReleaseLabel"
+                },
+                "ServiceRole": {
+                    "Ref": "EmrRole"
+                },
+                "AutoScalingRole":  {
+                    "Ref": "AutoScalingRole"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "EMR AdRec Cluster"
+                    },
+                    {
+                        "Key": "Project",
+                        "Value": {
+                            "Ref": "ProjectTag"
+                        }
+                    }
+                ],
+                "VisibleToAllUsers": "true"
+            },
+            "Type": "AWS::EMR::Cluster"
+        },
+        "MasterSecurityGroup" : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+               "GroupDescription" : "Allow full access to EMR master",
+               "VpcId" : {"Ref" : "VPC"},
+               "SecurityGroupIngress" : [{
+                     "IpProtocol" : "tcp",
+                     "FromPort" : "0",
+                     "ToPort" : "65535",
+                     "CidrIp": {
+                        "Ref": "AllowedCidrIngress"
+                     }
+                  }]
+            }
+         },
+        "AutoScalingRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+               "AssumeRolePolicyDocument": {
+                  "Version" : "2012-10-17",
+                  "Statement": [ {
+                     "Effect": "Allow",
+                     "Principal": {
+                        "Service": [ "elasticmapreduce.amazonaws.com", "application-autoscaling.amazonaws.com" ]
+                     },
+                     "Action": [ "sts:AssumeRole" ]
+                  } ]
+               },
+               "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceforAutoScalingRole" ],
+               "Path": "/"
+            }
+         },
+        "EmrRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+               "AssumeRolePolicyDocument": {
+                  "Version" : "2012-10-17",
+                  "Statement": [ {
+                     "Effect": "Allow",
+                     "Principal": {
+                        "Service": [ "elasticmapreduce.amazonaws.com", "datapipeline.amazonaws.com"]
+                     },
+                     "Action": [ "sts:AssumeRole" ]
+                  } ]
+               },
+               "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceRole", "arn:aws:iam::aws:policy/AmazonS3FullAccess", "arn:aws:iam::aws:policy/AmazonSageMakerFullAccess", "arn:aws:iam::aws:policy/service-role/AWSDataPipelineRole"],
+               "Path": "/"
+            }
+         },
+         "EmrKmsRolePolicies": {
+            "Type": "AWS::IAM::Policy",
+            "Properties": {
+               "PolicyName": "EMRKmsETL",
+               "PolicyDocument": {
+                  "Version" : "2012-10-17",
+                  "Statement": [ {
+                     "Effect": "Allow",
+                     "Action": "kms:GenerateDataKey",
+                     "Resource": "*"
+                  }, {
+                     "Effect": "Allow",
+                     "Action": "kms:Decrypt",
+                     "Resource": "*"
+
+                  } ]
+               },
+               "Roles": [ {
+                  "Ref": "EmrRole"
+               } ]
+            }
+         },
+         "EmrEc2Role": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+               "AssumeRolePolicyDocument": {
+                  "Version" : "2012-10-17",
+                  "Statement": [ {
+                     "Effect": "Allow",
+                     "Principal": {
+                        "Service": [ "ec2.amazonaws.com"]
+                     },
+                     "Action": [ "sts:AssumeRole" ]
+                  } ]
+               },
+               "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/service-role/AmazonElasticMapReduceforEC2Role", "arn:aws:iam::aws:policy/AmazonS3FullAccess", "arn:aws:iam::aws:policy/AmazonSageMakerFullAccess", "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforDataPipelineRole"],
+               "Path": "/"
+            }
+         },
+         "EmrEc2InstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+              "Path": "/",
+              "Roles": [ {
+                "Ref": "EmrEc2Role"
+              } ]
+            }
+          },
+         "EmrEc2KmsRolePolicies": {
+            "Type": "AWS::IAM::Policy",
+            "Properties": {
+               "PolicyName": "EMREc2KmsETL",
+               "PolicyDocument": {
+                  "Version" : "2012-10-17",
+                  "Statement": [ {
+                     "Effect": "Allow",
+                     "Action": "kms:GenerateDataKey",
+                     "Resource": "*"
+                  }, {
+                     "Effect": "Allow",
+                     "Action": "kms:Decrypt",
+                     "Resource": "*"
+
+                  } ]
+               },
+               "Roles": [ {
+                  "Ref": "EmrEc2Role"
+               } ]
+            }
+         }
+    }
+}

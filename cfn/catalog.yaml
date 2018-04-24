@@ -1,0 +1,504 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify,
+# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Description: >
+  This template registers a Glue metadata catalog and several tables.
+
+Parameters:
+  GlueDbName:
+    Type: String
+    Description: "Name for the metadata catalog"
+    Default: promocatalog
+  GlueTableNameRawClicks:
+    Type: String
+    Description: "Name for the raw clicks table"
+    Default: ecclicksraw
+  GlueTableNameEnhClicks:
+    Type: String
+    Description: "Name for the enhanced clicks table"
+    Default: ecclicksenh
+  GlueTableNameAds:
+    Type: String
+    Description: "Name for the ad serve table"
+    Default: ecadserve
+  ReferenceBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store reference data sets.
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+  AdLogBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store ad serve events. 
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+  LambdaZipVersionPart:
+    Type: String
+    Description: "Object version ID for the zip file containing the lambda function for partitinon updates"
+  ProjectTag:
+    Type: String
+    Description: Tag to apply to created resources for visibility
+  RawBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store raw clickstream data. 
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+  EnhancedClickstreamBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store enhanced clickstream data. 
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+
+Resources: 
+  SchemaDatabase:
+    Type: "AWS::Glue::Database"
+    Properties:
+      DatabaseInput: 
+        Name: !Ref GlueDbName
+      CatalogId: !Ref AWS::AccountId
+  GlueTableAds:
+    Type: "AWS::Glue::Table"
+    Properties:
+      TableInput: 
+        Description: "Ad serve table"
+        Name: !Ref GlueTableNameAds
+        StorageDescriptor:
+          StoredAsSubDirectories: false
+          Compressed: true
+          InputFormat: "org.apache.hadoop.mapred.TextInputFormat"
+          OutputFormat: "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
+          Columns:
+            -
+              Type: string
+              Name: userid
+            -
+              Type: string
+              Name: offerid
+            -
+              Type: string
+              Name: countrycode
+            -
+              Type: string
+              Name: category
+            -
+              Type: string
+              Name: item
+            -
+              Type: string
+              Name: ts
+            -
+              Type: string
+              Name: clickts
+          SerdeInfo:
+            SerializationLibrary: "com.amazonaws.glue.serde.GrokSerDe"
+            Parameters: 
+              input.format: "%{NOCOMMA:userid:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:clickts:string}"
+              input.grokCustomPatterns: "NOCOMMA ([^,]*)"
+          Location: !Join ["", ["s3://", !Ref AdLogBucketName, "/ads/"]]
+          Parameters: 
+            compressionType: "gzip"
+            classification: !Ref GlueTableNameAds
+            typeOfData: "file"
+            grokPattern: "%{NOCOMMA:userid:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:clickts:string}"
+            grokCustomPatterns: "NOCOMMA ([^,]*)"
+        Parameters: 
+          compressionType: "gzip"
+          classification: !Ref GlueTableNameAds
+          typeOfData: "file"
+          grokPattern: "%{NOCOMMA:userid:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:clickts:string}"
+          grokCustomPatterns: "NOCOMMA ([^,]*)"
+        PartitionKeys:
+          -
+            Type: string
+            Name: year
+          -
+            Type: string
+            Name: month
+          -
+            Type: string
+            Name: day
+          -
+            Type: string
+            Name: hour
+        TableType: "EXTERNAL_TABLE"
+      DatabaseName: !Ref SchemaDatabase
+      CatalogId: !Ref AWS::AccountId
+  GlueRawClicksClassifier:
+    Type: "AWS::Glue::Classifier"
+    Properties:
+      GrokClassifier:
+        Name: !Join ["", ["Classifier-", !Ref GlueTableNameRawClicks]]
+        Classification: !Ref GlueTableNameRawClicks
+        GrokPattern: "%{NOCOMMA:username:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:rating:string}"
+        CustomPatterns: "NOCOMMA ([^,]*)"
+  GlueAdClassifier:
+    Type: "AWS::Glue::Classifier"
+    Properties:
+      GrokClassifier:
+        Name: !Join ["", ["Classifier-", !Ref GlueTableNameAds]]
+        Classification: !Ref GlueTableNameAds
+        GrokPattern: "%{NOCOMMA:userid:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:clickts:string}"
+        CustomPatterns: "NOCOMMA ([^,]*)"
+  GlueEnhClicksClassifier:
+    Type: "AWS::Glue::Classifier"
+    Properties:
+      GrokClassifier:
+        Name: !Join ["", ["Classifier-", !Ref GlueTableNameEnhClicks]]
+        Classification: !Ref GlueTableNameEnhClicks
+        GrokPattern: "%{NOCOMMA:userid:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:rating:string}"
+        CustomPatterns: "NOCOMMA ([^,]*)"
+  GlueAdPartitionUpdateFn:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "This function updates the glue catalog whenever a new ad serve partition is added"
+      MemorySize: 1024
+      Runtime: "python2.7"
+      Timeout: 300
+      Role: !GetAtt PartFnRole.Arn
+      Handler: "index.handler"
+      Code: 
+        S3Bucket: !Ref ReferenceBucketName
+        S3Key: "functions/lambda-part.zip"
+        S3ObjectVersion: !Ref LambdaZipVersionPart
+      Environment:
+        Variables:
+          PartitionFor: !Ref GlueTableNameAds
+          DatabaseName: !Ref SchemaDatabase
+          PartitionPrefix: 'ads'
+          DdbTable: !Ref PartitionTrackingTable
+          DdbStreams: !Join ["", [!Ref GlueTableNameEnhClicks]]
+      Tags:
+        -
+          Key: Project
+          Value: !Ref ProjectTag
+  GlueRawClicksPartitionUpdateFn:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "This function updates the glue catalog whenever a new raw clicks partition is added"
+      MemorySize: 1024
+      Runtime: "python2.7"
+      Timeout: 300
+      Role: !GetAtt PartFnRole.Arn
+      Handler: "index.handler"
+      Code: 
+        S3Bucket: !Ref ReferenceBucketName
+        S3Key: "functions/lambda-part.zip"
+        S3ObjectVersion: !Ref LambdaZipVersionPart
+      Environment:
+        Variables:
+          PartitionFor: !Ref GlueTableNameRawClicks
+          DatabaseName: !Ref SchemaDatabase
+          PartitionPrefix: 'clicks'
+          DdbTable: !Ref PartitionTrackingTable
+          DdbStreams: !Join ["", [!Ref GlueTableNameEnhClicks]]
+      Tags:
+        -
+          Key: Project
+          Value: !Ref ProjectTag
+  GlueEnhClicksPartitionUpdateFn:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "This function updates the glue catalog whenever a new enhanced clicks partition is added"
+      MemorySize: 1024
+      Runtime: "python2.7"
+      Timeout: 300
+      Role: !GetAtt PartFnRole.Arn
+      Handler: "index.handler"
+      Code: 
+        S3Bucket: !Ref ReferenceBucketName
+        S3Key: "functions/lambda-part.zip"
+        S3ObjectVersion: !Ref LambdaZipVersionPart
+      Environment:
+        Variables:
+          PartitionFor: !Ref GlueTableNameEnhClicks
+          DatabaseName: !Ref SchemaDatabase
+          PartitionPrefix: 'clicks'
+          DdbTable: !Ref PartitionTrackingTable
+          DdbStreams: !Join ["", [!Ref GlueTableNameEnhClicks]]
+      Tags:
+        -
+          Key: Project
+          Value: !Ref ProjectTag
+  PartFnRole:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      RoleName: !Join ["", ["PartFnRole-", !Ref GlueDbName]]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+                - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AWSGlueConsoleFullAccess"
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  PartFnRoleKmsAccess:
+    Type: "AWS::IAM::Policy"
+    Properties:  
+      PolicyName: "PartFnRoleKmsAccess"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Action: "kms:GenerateDataKey"
+            Resource: "*"
+          - 
+            Effect: "Allow"
+            Action: "kms:Decrypt"
+            Resource: "*"
+      Roles: 
+        - 
+          Ref: "PartFnRole"
+  PartFnRoleDynamoAccess:
+    Type: "AWS::IAM::Policy"
+    Properties:  
+      PolicyName: "PartFnRoleDynamoAccess"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Action: "dynamodb:PutItem"
+            Resource: !GetAtt PartitionTrackingTable.Arn
+      Roles: 
+        - 
+          Ref: "PartFnRole"
+  PartFnPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties: 
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt GlueAdPartitionUpdateFn.Arn
+      Principal: "s3.amazonaws.com"
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Join ["", ["arn:aws:s3:::", !Ref AdLogBucketName]]
+  PartFnPermissionRawClicks:
+    Type: "AWS::Lambda::Permission"
+    Properties: 
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt GlueRawClicksPartitionUpdateFn.Arn
+      Principal: "s3.amazonaws.com"
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Join ["", ["arn:aws:s3:::", !Ref RawBucketName]]
+  PartFnPermissionEnhClicks:
+    Type: "AWS::Lambda::Permission"
+    Properties: 
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt GlueEnhClicksPartitionUpdateFn.Arn
+      Principal: "s3.amazonaws.com"
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Join ["", ["arn:aws:s3:::", !Ref EnhancedClickstreamBucketName]]
+  GlueTableRawClicks:
+    Type: "AWS::Glue::Table"
+    Properties:
+      TableInput: 
+        Description: "Raw clicks table"
+        Name: !Ref GlueTableNameRawClicks
+        StorageDescriptor:
+          StoredAsSubDirectories: false
+          Compressed: true
+          InputFormat: "org.apache.hadoop.mapred.TextInputFormat"
+          OutputFormat: "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
+          Columns:
+            -
+              Type: string
+              Name: username
+            -
+              Type: string
+              Name: offerid
+            -
+              Type: string
+              Name: countrycode
+            -
+              Type: string
+              Name: category
+            -
+              Type: string
+              Name: item
+            -
+              Type: string
+              Name: ts
+            -
+              Type: string
+              Name: rating
+          SerdeInfo:
+            SerializationLibrary: "com.amazonaws.glue.serde.GrokSerDe"
+            Parameters: 
+              input.format: "%{NOCOMMA:username:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:rating:string}" 
+              input.grokCustomPatterns: "NOCOMMA ([^,]*)"
+          Location: !Join ["", ["s3://", !Ref RawBucketName, "/clicks/"]]
+          Parameters: 
+            compressionType: "gzip"
+            classification: !Ref GlueTableNameRawClicks
+            typeOfData: "file"
+            grokPattern: "%{NOCOMMA:username:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:rating:string}"
+            grokCustomPatterns: "NOCOMMA ([^,]*)"
+        Parameters: 
+          compressionType: "gzip"
+          classification: !Ref GlueTableNameRawClicks
+          typeOfData: "file"
+          grokPattern: "%{NOCOMMA:username:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:rating:string}"
+          grokCustomPatterns: "NOCOMMA ([^,]*)"
+        PartitionKeys:
+          -
+            Type: string
+            Name: year
+          -
+            Type: string
+            Name: month
+          -
+            Type: string
+            Name: day
+          -
+            Type: string
+            Name: hour
+        TableType: "EXTERNAL_TABLE"
+      DatabaseName: !Ref SchemaDatabase
+      CatalogId: !Ref AWS::AccountId
+  GlueTableEnhClicks:
+    Type: "AWS::Glue::Table"
+    Properties:
+      TableInput: 
+        Description: "Enhanced clicks table"
+        Name: !Ref GlueTableNameEnhClicks
+        StorageDescriptor:
+          StoredAsSubDirectories: false
+          Compressed: true
+          InputFormat: "org.apache.hadoop.mapred.TextInputFormat"
+          OutputFormat: "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
+          Columns:
+            -
+              Type: string
+              Name: userid
+            -
+              Type: string
+              Name: offerid
+            -
+              Type: string
+              Name: countrycode
+            -
+              Type: string
+              Name: category
+            -
+              Type: string
+              Name: item
+            -
+              Type: string
+              Name: ts
+            -
+              Type: string
+              Name: rating
+          SerdeInfo:
+            SerializationLibrary: "com.amazonaws.glue.serde.GrokSerDe"
+            Parameters: 
+              input.format: "%{NOCOMMA:userid:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:rating:string}"
+              input.grokCustomPatterns: "NOCOMMA ([^,]*)"
+          Location: !Join ["", ["s3://", !Ref EnhancedClickstreamBucketName, "/clicks/"]]
+          Parameters: 
+            compressionType: "gzip"
+            classification: !Ref GlueTableNameEnhClicks
+            typeOfData: "file"
+            grokPattern: "%{NOCOMMA:userid:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:rating:string}"
+            grokCustomPatterns: "NOCOMMA ([^,]*)"
+        Parameters: 
+          compressionType: "gzip"
+          classification: !Ref GlueTableNameEnhClicks
+          typeOfData: "file"
+          grokPattern: "%{NOCOMMA:userid:string},%{NOCOMMA:offerid:string},%{NOCOMMA:countrycode:string},%{NOCOMMA:category:string},%{NOCOMMA:item:string},%{NOCOMMA:ts:string},%{NOCOMMA:rating:string}"
+          grokCustomPatterns: "NOCOMMA ([^,]*)"
+        PartitionKeys:
+          -
+            Type: string
+            Name: year
+          -
+            Type: string
+            Name: month
+          -
+            Type: string
+            Name: day
+          -
+            Type: string
+            Name: hour
+        TableType: "EXTERNAL_TABLE"
+      DatabaseName: !Ref SchemaDatabase
+      CatalogId: !Ref AWS::AccountId
+  PartitionTrackingTable:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      AttributeDefinitions:
+        - 
+          AttributeName: "File"
+          AttributeType: "S"
+        - 
+          AttributeName: "IsProcessed"
+          AttributeType: "N"
+      KeySchema:
+        - 
+          AttributeName: "File"
+          KeyType: "HASH"
+        - 
+          AttributeName: "IsProcessed"
+          KeyType: "RANGE"
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      Tags: 
+        -
+          Key: Project
+          Value: !Ref ProjectTag
+Outputs:
+  SchemaDatabaseName:
+    Description: Glue catalog name
+    Value: !Ref SchemaDatabase
+  PartitionTrackingDatabaseName:
+    Description: DynamoDB table name
+    Value: !Ref PartitionTrackingTable
+  AdLambdaArn:
+    Description: "ARN of function used to update ad table partitions"
+    Value: !GetAtt GlueAdPartitionUpdateFn.Arn
+  RawClicksLambdaArn:
+    Description: "ARN of function used to update raw clicks table partitions"
+    Value: !GetAtt GlueRawClicksPartitionUpdateFn.Arn
+  EnhClicksLambdaArn:
+    Description: "ARN of function used to update enhanced clicks table partitions"
+    Value: !GetAtt GlueEnhClicksPartitionUpdateFn.Arn
+  PartFnRoleArn:
+    Description: "ARN of lambda role"
+    Value: !GetAtt PartFnRole.Arn

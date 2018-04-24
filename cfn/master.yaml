@@ -1,0 +1,1098 @@
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify,
+# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+  This template implements a low-latency marketing campaign
+  system based on clickstream data from an e-commerce site.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "S3 Buckets"
+        Parameters:
+          - PrepBucketName
+          - RawBucketName
+          - EnhancedClickstreamBucketName
+          - AdLogBucketName
+          - ModelTrainingBucketName
+          - ModelOutputBucketName
+      -
+         Label:
+          default: "Kinesis Stream Configuration"
+         Parameters:
+          - ShardCount
+      -
+        Label:
+          default: "VPC and network Configuration"
+        Parameters:
+          - vpccidr
+          - AllowedCidrIngress
+          - AppPrivateCIDRA
+          - AppPrivateCIDRB
+          - AppPublicCIDRA
+          - AppPublicCIDRB
+      -
+        Label:
+          default: "E-Commerce App Configuration"
+        Parameters:
+          - MinSize
+          - MaxSize
+          - DesiredCapacity
+          - InstanceSize
+          - keyname
+      -
+        Label:
+          default: "EMR Configuration"
+        Parameters:
+          - MaxEmrCapacity
+          - MinEmrCapacity
+          - DesiredEmrCapacity
+          - EmrCoreInstanceType
+          - EmrMasterInstanceType
+          - EmrLogDir
+          - emrReleaseLabel
+      -
+        Label:
+          default: "ML Configuration"
+        Parameters:
+          - EndpointName
+          - SagemakerImageUri
+          - SagemakerRoleArn
+      -
+        Label:
+          default: "Metadata Catalog Configuration"
+        Parameters:
+          - GlueDbName
+          - GlueTableNameEnhClicks
+          - GlueTableNameRawClicks
+          - GlueTableNameAds
+      -
+        Label:
+          default: "Other Configuration"
+        Parameters:
+          - ProjectTag
+          - LambdaZipVersion
+          - LambdaZipVersionEnh
+          - LambdaZipVersionPart
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      "REGIONURLSUFFIX" : ""
+    us-west-2:
+      "REGIONURLSUFFIX" : "-us-west-2"
+
+Parameters:
+  AllowedCidrIngress:
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid CIDR range in the form x.x.x.x/YY
+    Default: 0.0.0.0/0
+  GlueTableNameRawClicks:
+    Type: String
+    Description: "Name for the raw clicks table"
+    Default: ecclicksraw
+  GlueTableNameEnhClicks:
+    Type: String
+    Description: "Name for the enhanced clicks table"
+    Default: ecclicksenh
+  GlueTableNameAds:
+    Type: String
+    Description: "Name for the ad serve table"
+    Default: ecadserve
+  GlueDbName:
+    Type: String
+    Description: "Name for the metadata catalog"
+    Default: promocatalog
+  LambdaZipVersion:
+    Type: String
+    Description: "Object version ID for the zip file containing the lambda function for ML serves"
+  LambdaZipVersionEnh:
+    Type: String
+    Description: "Object version ID for the zip file containing the lambda function for enhancing raw clicks"
+  LambdaZipVersionPart:
+    Type: String
+    Description: "Object version ID for the zip file containing the lambda function for partitinon updates"
+  keyname:
+    Type: AWS::EC2::KeyPair::KeyName
+  EndpointName:
+    Type: String
+    Description: "Name of the ML endpoint to invoke"
+  SagemakerImageUri:
+    Type: String
+    Description: "URI for the Sagemaker image in ECS"
+  SagemakerRoleArn:
+    Type: String
+    Description: "ARN of the role used for Sagemaker"
+  RawBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store raw clickstream data. 
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+  PrepBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket that contains the CFN templates.  Templates must be stored under the 'cfn' folder.
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+  EnhancedClickstreamBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store enhanced clickstream data. 
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+  AdLogBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store ad serve events. 
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+  ModelTrainingBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store inputs that feed the AI model, formatted as sparse protobuf files.
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+  ModelOutputBucketName:
+    Type: String
+    Description: >
+      Name for the S3 bucket used to store AI model outputs.
+    MinLength: 3
+    MaxLength: 64
+    AllowedPattern: '^([a-z]|(\d(?!\d{0,2}\.\d{1,3}\.\d{1,3}\.\d{1,3})))([a-z\d]|(\.(?!(\.|-)))|(-(?!\.))){1,61}[a-z\d\.]$'
+    ConstraintDescription: >
+      Must begin with a letter and only alphanumeric characters or hyphens.
+      Cannot end in a hyphen or period.'
+  ProjectTag:
+    Type: String
+    Description: Tag to apply to created resources for visibility
+    Default: PromoRecSys
+  ShardCount:
+    Type: Number
+    Description: Number of shards for input data stream
+    Default: 2
+    MinValue: 1
+    MaxValue: 10
+  MinSize:
+    Type: String
+    Description: Minimum number of app servers
+    Default: "1"
+  MaxSize:
+    Type: String
+    Description: Maximum number of app servers (Desired x 2)
+    Default: "2"
+  DesiredCapacity:
+    Type: String
+    Description: Nominal Size of ecommerce app group
+    Default: "1"
+  MinEmrCapacity:
+    Type: String
+    Description: Minimum number of EMR core servers
+    Default: "2"
+  MaxEmrCapacity:
+    Type: String
+    Description: Maximum number of EMR core servers 
+    Default: "5"
+  DesiredEmrCapacity:
+    Type: String
+    Description: Nominal Size of EMR core group
+    Default: "3"
+  EmrLogDir:
+    Type: String
+    Description: S3 directory for EMR logs
+  emrReleaseLabel:
+    Type: String
+    Description: EMR release
+    Default: "emr-5.12.0"
+  InstanceSize:
+    Type: String
+    AllowedValues:
+      - t2.large
+      - m4.large
+      - m4.xlarge
+      - m4.2xlarge
+      - m4.4xlarge
+      - m4.10xlarge
+      - m4.16xlarge
+    Default: "t2.large"
+    Description: Instance type for ecommerce servers.
+  EmrCoreInstanceType:
+    Type: String
+    AllowedValues:
+      - m3.xlarge 
+      - m3.2xlarge 
+      - m4.large 
+      - m4.xlarge 
+      - m4.2xlarge 
+      - m4.4xlarge 
+      - m4.10xlarge 
+      - m4.16xlarge 
+      - c3.xlarge 
+      - c3.2xlarge 
+      - c3.4xlarge 
+      - c3.8xlarge 
+      - c4.large 
+      - c4.xlarge 
+      - c4.2xlarge 
+      - c4.4xlarge 
+      - c4.8xlarge
+      - r3.xlarge 
+      - r3.2xlarge 
+      - r3.4xlarge 
+      - r3.8xlarge 
+      - r4.xlarge 
+      - r4.2xlarge 
+      - r4.4xlarge 
+      - r4.8xlarge 
+      - r4.16xlarge
+      - d2.xlarge 
+      - d2.2xlarge 
+      - d2.4xlarge 
+      - d2.8xlarge
+    Default: "r4.2xlarge"
+    Description: Instance type for core EMR servers.
+  EmrMasterInstanceType:
+    Type: String
+    AllowedValues:
+      - m3.xlarge 
+      - m3.2xlarge 
+      - m4.large 
+      - m4.xlarge 
+      - m4.2xlarge 
+      - m4.4xlarge 
+      - m4.10xlarge 
+      - m4.16xlarge 
+      - c3.xlarge 
+      - c3.2xlarge 
+      - c3.4xlarge 
+      - c3.8xlarge 
+      - c4.large 
+      - c4.xlarge 
+      - c4.2xlarge 
+      - c4.4xlarge 
+      - c4.8xlarge
+      - r3.xlarge 
+      - r3.2xlarge 
+      - r3.4xlarge 
+      - r3.8xlarge 
+      - r4.xlarge 
+      - r4.2xlarge 
+      - r4.4xlarge 
+      - r4.8xlarge 
+      - r4.16xlarge
+      - d2.xlarge 
+      - d2.2xlarge 
+      - d2.4xlarge 
+      - d2.8xlarge
+    Default: "r4.2xlarge"
+    Description: Instance type for master EMR servers.
+  vpccidr:
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid CIDR range in the form x.x.x.x/16
+    Default: 10.20.0.0/16
+    Description: CIDR block for the VPC that will host the ecommerce servers.
+  AppPublicCIDRA:
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid CIDR range in the form x.x.x.x/22
+    Default: 10.20.1.0/24
+    Description: CIDR block for the first public subnet in the VPC.
+  AppPublicCIDRB:
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid CIDR range in the form x.x.x.x/22
+    Default: 10.20.2.0/24
+    Description: CIDR block for the second public subnet in the VPC.
+  AppPrivateCIDRA:
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid CIDR range in the form x.x.x.x/22
+    Default: 10.20.3.0/24
+    Description: CIDR block for the first private subnet in the VPC.
+  AppPrivateCIDRB:
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid CIDR range in the form x.x.x.x/22
+    Default: 10.20.4.0/24
+    Description: CIDR block for the first private subnet in the VPC.
+
+Resources:
+  RawBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref RawBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256     
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - 
+            Event: "s3:ObjectCreated:*"
+            Filter:
+              S3Key:
+                Rules:
+                  - 
+                    Name: prefix
+                    Value: "clicks/"
+            Function: !GetAtt GlueStack.Outputs.RawClicksLambdaArn
+  EnhancedBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref EnhancedClickstreamBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256     
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - 
+            Event: "s3:ObjectCreated:*"
+            Filter:
+              S3Key:
+                Rules:
+                  - 
+                    Name: prefix
+                    Value: "clicks/"
+            Function: !GetAtt GlueStack.Outputs.EnhClicksLambdaArn
+  AdBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref AdLogBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256     
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - 
+            Event: "s3:ObjectCreated:*"
+            Filter:
+              S3Key:
+                Rules:
+                  - 
+                    Name: prefix
+                    Value: "ads/"
+            Function: !GetAtt GlueStack.Outputs.AdLambdaArn
+  ModelTrainingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref ModelTrainingBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256     
+  ModelOutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref ModelOutputBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256     
+  EncryptKey:
+    Type: 'AWS::KMS::Key'
+    Properties:
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: key-default-1
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Join 
+                - ''
+                - - 'arn:aws:iam::'
+                  - !Ref 'AWS::AccountId'
+                  - ':root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Enable IAM Role Permissions for EC2
+            Effect: Allow
+            Principal: 
+              AWS: !Join 
+                - ''
+                - - !GetAtt EC2KinesisRole.Arn
+            Action: 
+              - "kms:GenerateDataKey*"
+              - "kms:Encrypt"
+              - "kms:Decrypt"
+              - "kms:ReEncrypt*"
+              - "kms:DescribeKey"
+              - "kms:CreateGrant"
+              - "kms:ListGrants"
+              - "kms:RevokeGrant"
+            Resource: "*"
+          - Sid: Enable IAM Role Permissions for Firehose
+            Effect: Allow
+            Principal: 
+              AWS: !Join 
+                - ''
+                - - !GetAtt FirehoseRole.Arn
+            Action: 
+              - "kms:GenerateDataKey*"
+              - "kms:Encrypt"
+              - "kms:Decrypt"
+              - "kms:ReEncrypt*"
+              - "kms:DescribeKey"
+              - "kms:CreateGrant"
+              - "kms:ListGrants"
+              - "kms:RevokeGrant"
+            Resource: "*"
+          - Sid: Enable IAM Role Permissions for lambda
+            Effect: Allow
+            Principal: 
+              AWS: !Join 
+                - ''
+                - - !GetAtt RawResponseRole.Arn
+            Action: 
+              - "kms:GenerateDataKey*"
+              - "kms:Encrypt"
+              - "kms:Decrypt"
+              - "kms:ReEncrypt*"
+              - "kms:DescribeKey"
+              - "kms:CreateGrant"
+              - "kms:ListGrants"
+              - "kms:RevokeGrant"
+            Resource: "*"
+          - Sid: Enable IAM Role Permissions for glue lambda
+            Effect: Allow
+            Principal: 
+              AWS: !Join 
+                - ''
+                - - !GetAtt GlueStack.Outputs.PartFnRoleArn
+            Action: 
+              - "kms:GenerateDataKey*"
+              - "kms:Encrypt"
+              - "kms:Decrypt"
+              - "kms:ReEncrypt*"
+              - "kms:DescribeKey"
+              - "kms:CreateGrant"
+              - "kms:ListGrants"
+              - "kms:RevokeGrant"
+            Resource: "*"
+          - Sid: Enable IAM Role Permissions for EMR 
+            Effect: Allow
+            Principal: 
+              AWS: !Join 
+                - ''
+                - - !GetAtt EmrStack.Outputs.EmrRoleArn
+            Action: 
+              - "kms:GenerateDataKey*"
+              - "kms:Encrypt"
+              - "kms:Decrypt"
+              - "kms:ReEncrypt*"
+              - "kms:DescribeKey"
+              - "kms:CreateGrant"
+              - "kms:ListGrants"
+              - "kms:RevokeGrant"
+            Resource: "*"
+          - Sid: Enable IAM Role Permissions for EMR EC2
+            Effect: Allow
+            Principal: 
+              AWS: !Join 
+                - ''
+                - - !GetAtt EmrStack.Outputs.EmrEc2RoleArn
+            Action: 
+              - "kms:GenerateDataKey*"
+              - "kms:Encrypt"
+              - "kms:Decrypt"
+              - "kms:ReEncrypt*"
+              - "kms:DescribeKey"
+              - "kms:CreateGrant"
+              - "kms:ListGrants"
+              - "kms:RevokeGrant"
+            Resource: "*"
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectTag
+  InputDataStream: 
+    Type: "AWS::Kinesis::Stream"
+    Properties:
+      ShardCount: !Ref ShardCount
+      StreamEncryption:
+        EncryptionType: KMS
+        KeyId: !Ref EncryptKey
+      Tags:
+        -
+          Key: Project
+          Value: !Ref ProjectTag
+  InputDeliveryStream:
+    Type: "AWS::KinesisFirehose::DeliveryStream"
+    DependsOn: [FirehoseRoleBucketAccess,FirehoseRoleStreamAccess,FirehoseRoleKmsAccess,FirehoseRoleLogAccess]
+    Properties:
+      DeliveryStreamType: KinesisStreamAsSource
+      KinesisStreamSourceConfiguration:
+        KinesisStreamARN: !GetAtt InputDataStream.Arn
+        RoleARN: !GetAtt FirehoseRole.Arn
+      S3DestinationConfiguration:
+        BucketARN: !GetAtt RawBucket.Arn
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 5
+        CloudWatchLoggingOptions: 
+          Enabled: true
+          LogGroupName: !Ref EcLogGroup
+          LogStreamName: !Ref EcLogStreamRawClicks
+        CompressionFormat: "GZIP"
+        EncryptionConfiguration: 
+          KMSEncryptionConfig:
+            AWSKMSKeyARN: !GetAtt EncryptKey.Arn
+        Prefix: "clicks/"
+        RoleARN: !GetAtt FirehoseRole.Arn
+  AdDeliveryStream:
+    Type: "AWS::KinesisFirehose::DeliveryStream"
+    DependsOn: [FirehoseRoleBucketAccess,FirehoseRoleStreamAccess,FirehoseRoleKmsAccess,FirehoseRoleLogAccess]
+    Properties:
+      DeliveryStreamType: DirectPut
+      S3DestinationConfiguration:
+        BucketARN: !GetAtt AdBucket.Arn
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 5
+        CloudWatchLoggingOptions: 
+          Enabled: true
+          LogGroupName: !Ref EcLogGroup
+          LogStreamName: !Ref EcLogStreamAd
+        CompressionFormat: "GZIP"
+        EncryptionConfiguration: 
+          KMSEncryptionConfig:
+            AWSKMSKeyARN: !GetAtt EncryptKey.Arn
+        Prefix: "ads/"
+        RoleARN: !GetAtt FirehoseRole.Arn
+  FirehoseRole:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "firehose.amazonaws.com"
+            Action:
+                - "sts:AssumeRole"
+  FirehoseRoleStreamAccess:
+    Type: "AWS::IAM::Policy"
+    Properties: 
+      PolicyName: "FirehoseStreamAccess"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: "kinesis:*"
+            Resource: !GetAtt InputDataStream.Arn
+      Roles: 
+        - 
+          Ref: "FirehoseRole"
+  FirehoseRoleBucketAccess:
+    Type: "AWS::IAM::Policy"
+    Properties:    
+      PolicyName: "FirehoseBucketAccess"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: "s3:*"
+            Resource: !Join
+              - ''
+              - - !GetAtt RawBucket.Arn
+          -
+            Effect: "Allow"
+            Action: "s3:*"
+            Resource: !Join
+              - ''
+              - - !GetAtt RawBucket.Arn
+                - '/*'
+          -
+            Effect: "Allow"
+            Action: "s3:*"
+            Resource: !Join
+              - ''
+              - - !GetAtt AdBucket.Arn
+          -
+            Effect: "Allow"
+            Action: "s3:*"
+            Resource: !Join
+              - ''
+              - - !GetAtt AdBucket.Arn
+                - '/*'
+          -
+            Effect: "Allow"
+            Action: "s3:*"
+            Resource: !Join
+              - ''
+              - - !GetAtt EnhancedBucket.Arn
+          -
+            Effect: "Allow"
+            Action: "s3:*"
+            Resource: !Join
+              - ''
+              - - !GetAtt EnhancedBucket.Arn
+                - '/*'
+          -
+            Effect: "Allow"
+            Action: "s3:ListObject"
+            Resource: "*"
+      Roles: 
+        - 
+          Ref: "FirehoseRole"
+  FirehoseRoleKmsAccess:
+    Type: "AWS::IAM::Policy"
+    Properties:  
+      PolicyName: "FirehoseKmsAccess"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Action: "kms:GenerateDataKey"
+            Resource: "*"
+          - 
+            Effect: "Allow"
+            Action: "kms:Decrypt"
+            Resource: "*"
+      Roles: 
+        - 
+          Ref: "FirehoseRole"
+  FirehoseRoleLogAccess:
+    Type: "AWS::IAM::Policy"
+    Properties:  
+      PolicyName: "FirehoseLogAccess"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Action: "logs:PutLogEvents"
+            Resource: "*"
+      Roles: 
+        - 
+          Ref: "FirehoseRole"
+  GlueStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Join ["", ["https://s3", !FindInMap [RegionMap, !Ref "AWS::Region", REGIONURLSUFFIX], ".amazonaws.com/", !Ref PrepBucketName, "/repo/cfn/catalog.yaml"]]
+      Parameters:
+        GlueDbName: !Ref GlueDbName
+        GlueTableNameAds: !Ref GlueTableNameAds
+        GlueTableNameRawClicks: !Ref GlueTableNameRawClicks
+        GlueTableNameEnhClicks: !Ref GlueTableNameEnhClicks
+        ReferenceBucketName: !Ref PrepBucketName
+        AdLogBucketName: !Ref AdLogBucketName
+        LambdaZipVersionPart: !Ref LambdaZipVersionPart
+        ProjectTag: !Ref ProjectTag
+        RawBucketName: !Ref RawBucketName
+        EnhancedClickstreamBucketName: !Ref EnhancedClickstreamBucketName
+  AppStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [InputDataStream,EC2KinesisRole,EC2KinesisRoleKinesisAccess,EC2KinesisRoleMetricAccess,EC2KinesisRoleKmsAccess]
+    Properties:
+      TemplateURL: !Join ["", ["https://s3", !FindInMap [RegionMap, !Ref "AWS::Region", REGIONURLSUFFIX], ".amazonaws.com/", !Ref PrepBucketName, "/repo/cfn/ecommerce.yaml"]]
+      Parameters:
+        MinSize: !Ref MinSize
+        MaxSize: !Ref MaxSize
+        DesiredCapacity: !Ref DesiredCapacity
+        InstanceSize: !Ref InstanceSize
+        RefBucketName: !Ref PrepBucketName
+        keyname: !Ref keyname
+        ClickStreamName: !Ref InputDataStream
+        EC2KinesisRole: !Ref EC2KinesisRole
+        SubnetPublicA: !GetAtt NetworkStack.Outputs.SubnetIdPublicA
+        SubnetPublicB: !GetAtt NetworkStack.Outputs.SubnetIdPublicB
+        SubnetPrivateA: !GetAtt NetworkStack.Outputs.SubnetIdPrivateA
+        SubnetPrivateB: !GetAtt NetworkStack.Outputs.SubnetIdPrivateB
+        VPC: !GetAtt NetworkStack.Outputs.VpcId
+        AllowedCidrIngress: !Ref AllowedCidrIngress
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Join ["", ["https://s3", !FindInMap [RegionMap, !Ref "AWS::Region", REGIONURLSUFFIX], ".amazonaws.com/", !Ref PrepBucketName, "/repo/cfn/network.yaml"]]
+      Parameters:
+        vpccidr: !Ref vpccidr
+        AppPrivateCIDRA: !Ref AppPrivateCIDRA
+        AppPrivateCIDRB: !Ref AppPrivateCIDRB
+        AppPublicCIDRA: !Ref AppPublicCIDRA
+        AppPublicCIDRB: !Ref AppPublicCIDRB
+  EmrStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Join ["", ["https://s3", !FindInMap [RegionMap, !Ref "AWS::Region", REGIONURLSUFFIX], ".amazonaws.com/", !Ref PrepBucketName, "/repo/cfn/emr.json"]]
+      Parameters:
+        MaxCapacity: !Ref MaxEmrCapacity
+        MinCapacity: !Ref MinEmrCapacity
+        CoreInstanceCount: !Ref DesiredEmrCapacity
+        CoreInstanceType: !Ref EmrCoreInstanceType
+        MasterInstanceType: !Ref EmrMasterInstanceType
+        EMRClusterName: !Join ["", ["AdRecCluster-", !Ref "AWS::StackId"]]
+        EMRLogDir: !Ref EmrLogDir
+        KeyName: !Ref keyname
+        ProjectTag: !Ref ProjectTag
+        Subnet: !GetAtt NetworkStack.Outputs.SubnetIdPublicA
+        VPC: !GetAtt NetworkStack.Outputs.VpcId
+        emrReleaseLabel: !Ref emrReleaseLabel
+        AllowedCidrIngress: !Ref AllowedCidrIngress
+  PipelineStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Join ["", ["https://s3", !FindInMap [RegionMap, !Ref "AWS::Region", REGIONURLSUFFIX], ".amazonaws.com/", !Ref PrepBucketName, "/repo/cfn/pipeline.json"]]
+      Parameters:
+        KeyName: !Ref keyname
+        SagemakerImageUri: !Ref SagemakerImageUri
+        SagemakerRoleArn: !Ref SagemakerRoleArn
+        GlueTableNameEnhClicks: !Ref GlueTableNameEnhClicks
+        ReferenceBucketName: !Ref PrepBucketName
+        ModelTrainingBucketName: !Ref ModelTrainingBucketName
+        ModelOutputBucketName: !Ref ModelOutputBucketName
+        PartitionTableName: !GetAtt GlueStack.Outputs.PartitionTrackingDatabaseName
+        emrReleaseLabel: !Ref emrReleaseLabel
+        EmrRoleName: !GetAtt EmrStack.Outputs.EmrRoleName
+        EmrEc2ProfileName: !GetAtt EmrStack.Outputs.EmrEc2ProfileName
+        MasterSG: !GetAtt EmrStack.Outputs.MasterSG
+        Subnet: !GetAtt NetworkStack.Outputs.SubnetIdPublicA
+        SnsTopicArn: !Ref AdNotification
+        StreamName: !Ref AdDeliveryStream
+        FnName: !Ref RawResponseFn
+  CwDbStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Join ["", ["https://s3", !FindInMap [RegionMap, !Ref "AWS::Region", REGIONURLSUFFIX], ".amazonaws.com/", !Ref PrepBucketName, "/repo/cfn/cloudwatch.yaml"]]
+      Parameters:
+        ClickStreamName: !Ref InputDataStream
+        EndpointName: !Ref EndpointName
+        AdDeliveryStream: !Ref AdDeliveryStream
+        InputEnhClickDeliveryStream: !Ref InputEnhDeliveryStream
+        InputClickDeliveryStream: !Ref InputDeliveryStream
+        RawBucketName: !Ref RawBucketName
+        EnhancedClickstreamBucketName: !Ref EnhancedClickstreamBucketName
+        AdLogBucketName: !Ref AdLogBucketName
+        RawResponseFnName: !Ref RawResponseFn
+  EC2KinesisRole:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+                - "sts:AssumeRole"
+  EC2KinesisRoleKinesisAccess:
+    Type: "AWS::IAM::Policy"
+    Properties: 
+      PolicyName: "KinesisAccess"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          -
+            Effect: "Allow"
+            Action: "kinesis:PutRecords"
+            Resource: !GetAtt InputDataStream.Arn
+          -
+            Effect: "Allow"
+            Action: "kinesis:PutRecord"
+            Resource: !GetAtt InputDataStream.Arn
+      Roles: 
+        - 
+          Ref: "EC2KinesisRole"
+  EC2KinesisRoleMetricAccess:
+    Type: "AWS::IAM::Policy"
+    Properties: 
+      PolicyName: "MetricAccess"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Action: "cloudwatch:PutMetricData"
+            Resource: "*"
+      Roles: 
+        - 
+          Ref: "EC2KinesisRole"
+  EC2KinesisRoleS3Access:
+    Type: "AWS::IAM::Policy"
+    Properties: 
+      PolicyName: "S3Access"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Action: "s3:*"
+            Resource: !Join
+              - ''
+              - - 'arn:aws:s3:::' 
+                - !Ref PrepBucketName
+                - '/Code/App.zip'
+      Roles: 
+        - 
+          Ref: "EC2KinesisRole"
+  EC2KinesisRoleKmsAccess:
+    Type: "AWS::IAM::Policy"
+    Properties: 
+      PolicyName: "KmsAccess"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Action: "kms:GenerateDataKey"
+            Resource: "*"
+      Roles: 
+        - 
+          Ref: "EC2KinesisRole"
+  RawResponseFn:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "This function processes raw click data, asks the model for an ad recommendation, and then notifies the user."
+      MemorySize: 1024
+      Runtime: "python2.7"
+      Timeout: 300
+      Role: !GetAtt RawResponseRole.Arn
+      Handler: "index.handler"
+      Code: 
+        S3Bucket: !Ref PrepBucketName
+        S3Key: "functions/lambda-ml.zip"
+        S3ObjectVersion: !Ref LambdaZipVersion
+      Environment:
+        Variables:
+          EndpointName: !Ref EndpointName
+          SnsTopic: !Ref AdNotification
+          DeliveryStreamName: !Ref AdDeliveryStream
+      Tags:
+        -
+          Key: Project
+          Value: !Ref ProjectTag
+  RawResponseFnEventSource:
+    Type: "AWS::Lambda::EventSourceMapping"
+    Properties: 
+      BatchSize: 10
+      Enabled: true
+      EventSourceArn: !GetAtt InputDataStream.Arn
+      FunctionName: !GetAtt RawResponseFn.Arn
+      StartingPosition: "LATEST"
+  RawResponseRole:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+                - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaKinesisExecutionRole"
+        - "arn:aws:iam::aws:policy/AmazonSageMakerFullAccess"
+        - "arn:aws:iam::aws:policy/AmazonSNSFullAccess"
+        - "arn:aws:iam::aws:policy/AmazonKinesisFirehoseFullAccess"
+  RawResponseRoleKmsAccess:
+    Type: "AWS::IAM::Policy"
+    Properties:  
+      PolicyName: "RawResponseRoleKmsAccess"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Action: "kms:GenerateDataKey"
+            Resource: "*"
+          - 
+            Effect: "Allow"
+            Action: "kms:Decrypt"
+            Resource: "*"
+      Roles: 
+        - 
+          Ref: "RawResponseRole"
+  RawResponseRoleBucketAccess:
+    Type: "AWS::IAM::Policy"
+    Properties:  
+      PolicyName: "RawResponseRoleBucketAccess"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action: "s3:*"
+            Resource: !Join
+              - ''
+              - - 'arn:aws:s3:::' 
+                - !Ref PrepBucketName
+                - '*'
+      Roles: 
+        - 
+          Ref: "RawResponseRole"
+  EnhClickFn:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Description: "This function processes raw click data, and archives enhanced data to S3"
+      MemorySize: 1024
+      Runtime: "python2.7"
+      Timeout: 300
+      Role: !GetAtt RawResponseRole.Arn
+      Handler: "index.handler"
+      Code: 
+        S3Bucket: !Ref PrepBucketName
+        S3Key: "functions/lambda-enhance.zip"
+        S3ObjectVersion: !Ref LambdaZipVersionEnh
+      Environment:
+        Variables:
+          DeliveryStreamName: !Ref InputEnhDeliveryStream
+      Tags:
+        -
+          Key: Project
+          Value: !Ref ProjectTag
+  EnhClickFnEventSource:
+    Type: "AWS::Lambda::EventSourceMapping"
+    Properties: 
+      BatchSize: 10
+      Enabled: true
+      EventSourceArn: !GetAtt InputDataStream.Arn
+      FunctionName: !GetAtt EnhClickFn.Arn
+      StartingPosition: "LATEST"
+  AdNotification:
+    Type: "AWS::SNS::Topic"
+    Properties: 
+      DisplayName: "Ecommerce Ad Notifications"
+  InputEnhDeliveryStream:
+    Type: "AWS::KinesisFirehose::DeliveryStream"
+    DependsOn: [FirehoseRoleBucketAccess,FirehoseRoleStreamAccess,FirehoseRoleKmsAccess,FirehoseRoleLogAccess]
+    Properties:
+      DeliveryStreamType: DirectPut
+      S3DestinationConfiguration:
+        BucketARN: !GetAtt EnhancedBucket.Arn
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 5
+        CloudWatchLoggingOptions: 
+          Enabled: true
+          LogGroupName: !Ref EcLogGroup
+          LogStreamName: !Ref EcLogStreamEnhClick
+        CompressionFormat: "GZIP"
+        EncryptionConfiguration: 
+          KMSEncryptionConfig:
+            AWSKMSKeyARN: !GetAtt EncryptKey.Arn
+        Prefix: "clicks/"
+        RoleARN: !GetAtt FirehoseRole.Arn
+  EcLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties: 
+      RetentionInDays: 14
+  EcLogStreamRawClicks:
+    Type: "AWS::Logs::LogStream"
+    Properties: 
+      LogGroupName: !Ref EcLogGroup
+      LogStreamName: !Ref GlueTableNameRawClicks
+  EcLogStreamAd:
+    Type: "AWS::Logs::LogStream"
+    Properties: 
+      LogGroupName: !Ref EcLogGroup
+      LogStreamName: !Ref GlueTableNameAds
+  EcLogStreamEnhClick:
+    Type: "AWS::Logs::LogStream"
+    Properties: 
+      LogGroupName: !Ref EcLogGroup
+      LogStreamName: !Ref GlueTableNameEnhClicks
+Outputs:
+  RawBucketOut:
+    Description: "Raw data bucket"
+    Value: !Ref RawBucketName
+  EnhancedClickstreamBucketOut:
+    Description: "Enhanced clickstream data bucket"
+    Value: !Ref EnhancedClickstreamBucketName
+  AdBucketOut:
+    Description: "Ad data bucket"
+    Value: !Ref AdLogBucketName
+  ModelTrainingBucketOut:
+    Description: "Model protobuf formatted input bucket"
+    Value: !Ref ModelTrainingBucketName
+  ModelOutputBucketOut:
+    Description: "Model output bucket"
+    Value: !Ref ModelOutputBucketName
+  ProjectTagOut:
+    Description: "Tag applied to resources"
+    Value: !Ref ProjectTag
+  InputDataStreamOut:
+    Description: "ARN of input Kinesis click stream"
+    Value: !GetAtt InputDataStream.Arn
+  EncryptKeyOut:
+    Description: "ARN of KMS encryption key"
+    Value: !GetAtt EncryptKey.Arn
+  AppEndpoint:
+    Description: Application Address
+    Value: !GetAtt AppStack.Outputs.Endpoint
+  JumpAddress:
+    Description: IP address of jump server
+    Value: !GetAtt AppStack.Outputs.JumpAddress
+  NotificationTopic:
+    Description: "Subscribe to this topic to get ad notifications"
+    Value: !GetAtt AdNotification.TopicName
+  LogGroup:
+    Description: "Name of CloudWatch log group for Firehose logging"
+    Value: !Ref EcLogGroup
+  CloudWatchDashboard:
+    Description: Name of dashboard
+    Value: !GetAtt CwDbStack.Outputs.DashboardName
+  PipelineName:
+    Description: Name of retraining pipeline
+    Value: !GetAtt PipelineStack.Outputs.PipelineName

@@ -1,0 +1,346 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+# Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify,
+# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Description: >
+  This template builds a mock ecommerce app server.
+
+Parameters:
+  MinSize:
+    Type: String
+    Description: Minimum number of app servers
+    Default: "1"
+  MaxSize:
+    Type: String
+    Description: Maximum number of app servers (Desired x 2)
+    Default: "2"
+  DesiredCapacity:
+    Type: String
+    Description: Nominal Size of APP Env
+    Default: "1"
+  InstanceSize:
+    Type: String
+    Description: Instance size
+    AllowedValues:
+      - t2.large
+      - m4.large
+      - m4.xlarge
+      - m4.2xlarge
+      - m4.4xlarge
+      - m4.10xlarge
+      - m4.16xlarge
+    Default: "t2.large"
+  VPC:
+    Type: "AWS::EC2::VPC::Id"
+    Description: "VPC ID for creating the application"
+  SubnetPublicA: 
+    Description: "First public subnet"
+    Type: "AWS::EC2::Subnet::Id"
+  SubnetPublicB: 
+    Description: "Second public subnet"
+    Type: "AWS::EC2::Subnet::Id"
+  SubnetPrivateA: 
+    Description: "First private subnet"
+    Type: "AWS::EC2::Subnet::Id"
+  SubnetPrivateB: 
+    Description: "Second private subnet"
+    Type: "AWS::EC2::Subnet::Id"
+  RefBucketName:
+    Type: String
+  keyname:
+    Type: AWS::EC2::KeyPair::KeyName
+  ClickStreamName:
+    Type: String
+  EC2KinesisRole:
+    Type: String
+  AllowedCidrIngress:
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid CIDR range in the form x.x.x.x/YY
+    Default: 0.0.0.0/0
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      "AMALINUX" : "ami-1853ac65" # AMALINUX SEP 2016
+    us-east-2:
+      "AMALINUX" : "ami-71ca9114" # AMALINUX SEP 2016
+    us-west-1:
+      "AMALINUX" : "ami-de347abe" # AMALINUX SEP 2016
+    us-west-2:
+      "AMALINUX" : "ami-d874e0a0" # AMALINUX SEP 2017
+    ca-central-1:
+      "AMALINUX" : "ami-eb20928f" # AMALINUX SEP 2016 v01
+    eu-west-1:
+      "AMALINUX" : "ami-d41d58a7" # AMALINUX SEP 2016
+    eu-central-1:
+      "AMALINUX" : "ami-0044b96f" # AMALINUX SEP 2016
+    eu-west-2:
+      "AMALINUX" : "ami-bfe0eadb" # AMALINUX SEP 2016 v01
+    ap-southeast-1:
+      "AMALINUX" : "ami-7243e611" # AMALINUX SEP 2016
+    ap-southeast-2:
+      "AMALINUX" : "ami-55d4e436" # AMALINUX SEP 2016
+    ap-northeast-2:
+      "AMALINUX" : "ami-a04297ce" # AMALINUX SEP 2016
+    ap-northeast-1:
+      "AMALINUX" : "ami-1a15c77b" # AMALINUX SEP 2016
+    ap-south-1:
+      "AMALINUX" : "ami-cacbbea5" # AMALINUX SEP 2016
+    sa-east-1:
+      "AMALINUX" : "ami-b777e4db" # AMALINUX SEP 2016
+Resources:
+  AutoScalingGroup:
+    CreationPolicy:
+      ResourceSignal:
+        Count: !Ref DesiredCapacity
+        Timeout: "PT5M"
+    UpdatePolicy:
+      AutoScalingReplacingUpdate:
+        WillReplace: true
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    Properties:
+      Cooldown: "300"
+      DesiredCapacity: !Ref DesiredCapacity
+      HealthCheckGracePeriod: "300"
+      HealthCheckType: ELB
+      LaunchConfigurationName: !Ref LaunchConfiguration
+      TargetGroupARNs:
+        - !Ref ELBTargetGroup
+      MaxSize: !Ref MaxSize
+      MinSize: !Ref MinSize
+      VPCZoneIdentifier:
+        - !Ref SubnetPrivateA
+        - !Ref SubnetPrivateB
+  LaunchConfiguration:
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMALINUX]
+      InstanceType: !Ref InstanceSize
+      IamInstanceProfile: !GetAtt KinesisInstanceProfile.Arn
+      KeyName: !Ref keyname
+      SecurityGroups:
+        - !Ref SG
+      UserData:
+        "Fn::Base64":
+          !Sub |
+            #!/bin/bash
+            yum update -y aws-cfn-bootstrap # good practice - always do this.
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchConfiguration --configsets www --region ${AWS::Region}
+            yum -y update
+            curl 127.0.0.1/index.php | grep Online
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource AutoScalingGroup --region ${AWS::Region}
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          www:
+            - "configure_cfn"
+            - "install_www"
+            - "config_app"
+            - "config_agent"
+        configure_cfn:
+          files:
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.LaunchConfiguration.Metadata.AWS::CloudFormation::Init
+                action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource LaunchConfiguration --configsets www --region ${AWS::Region}
+              mode: "000400"
+              owner: root
+              group: root
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+                verbose=true
+                interval=5
+              mode: "000400"
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: "true"
+                ensureRunning: "true"
+                files:
+                  - "/etc/cfn/cfn-hup.conf"
+                  - "/etc/cfn/hooks.d/cfn-auto-reloader.conf"
+        install_www:
+          packages:
+            yum:
+              httpd: []
+              php: []
+              git: []
+          services:
+            sysvinit:
+              httpd:
+                enabled: "true"
+                ensureRunning: "true"
+        config_app:
+          commands:
+            a_download_zip:
+              cwd: "/tmp"
+              command:  !Join ["",["aws s3 cp s3://", !Ref RefBucketName, "/Code/App.zip /tmp/App.zip"]]
+            b_unpack_zip:
+              cwd: "/var/www/html"
+              command:  "unzip /tmp/App.zip"
+            c_chmodinstaller:
+              cwd: "/var/www/html/utils"
+              command: "chmod +x install-composer.sh"
+            d_runinstaller:
+              cwd: "/var/www/html/utils"
+              command: "HOME=/root COMPOSER_HOME=/root/.composer ./install-composer.sh"
+            e_runcomposer:
+              cwd: "/var/www/html"
+              command: "HOME=/root COMPOSER_HOME=/root/.composer utils/composer.phar install"
+            f_mklogdir:
+              cwd: "/var/www"
+              command: "mkdir -p /var/www/logs"
+            g_chownlogdir:
+              cwd: "/var/www"
+              command: "chown -R apache /var/www/logs"
+            h_changedocroot:
+              cwd: "/etc/httpd/conf"
+              command: "grep 'html\\/web' httpd.conf || sed -i.bak 's/var\\/www\\/html/var\\/www\\/html\\/web/g' httpd.conf"
+            i_restarthttpd:
+              cwd: "/etc/httpd/conf"
+              command: "service httpd restart"
+        config_agent:
+          files:
+            /etc/aws-kinesis/agent.json:
+              content: !Sub |
+                { 
+                  "cloudwatch.emitMetrics": true,
+                  "kinesis.endpoint": "https://kinesis.${AWS::Region}.amazonaws.com",
+                  "flows": [
+                        { 
+                            "filePattern": "/var/www/logs/log_*.txt", 
+                            "kinesisStream": "${ClickStreamName}"
+                        }
+                  ] 
+                }
+              mode: "000444"
+              owner: root
+              group: root
+          packages:
+            yum:
+              aws-kinesis-agent: []
+          services:
+            sysvinit:
+              aws-kinesis-agent:
+                enabled: "true"
+                ensureRunning: "true"
+                files:
+                  - "/etc/aws-kinesis/agent.json"
+          commands:
+            a_chownlogdir:
+              cwd: "/etc"
+              command: "chown -R aws-kinesis-agent-user /etc/aws-kinesis/agent.json"
+  
+  JumpServer:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMALINUX]
+      InstanceType: !Ref InstanceSize
+      KeyName: !Ref keyname
+      SubnetId: 
+        Ref: SubnetPublicA
+      SecurityGroupIds: 
+        - Fn::GetAtt:
+          - SG
+          - GroupId
+  AppELB:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      Subnets:
+        - !Ref SubnetPublicA
+        - !Ref SubnetPublicB
+      SecurityGroups:
+        - Fn::GetAtt:
+          - SG
+          - GroupId
+      Type: application
+  ELBListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties: 
+      DefaultActions:
+        - TargetGroupArn: !Ref ELBTargetGroup
+          Type: "forward"
+      LoadBalancerArn: !Ref AppELB
+      Port: 80
+      Protocol: HTTP
+  ELBTargetGroup:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckPort: 80
+      HealthCheckProtocol: HTTP
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VPC
+  SG:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: !Join ["", ["Stack ", !Ref "AWS::StackId", " ECommerce"]]
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        -
+          CidrIp: !Ref AllowedCidrIngress
+          IpProtocol: tcp
+          ToPort: "80"
+          FromPort: "80"
+        -
+          CidrIp: !Ref AllowedCidrIngress
+          IpProtocol: tcp
+          ToPort: "22"
+          FromPort: "22"
+      SecurityGroupEgress:
+        -
+          CidrIp: 0.0.0.0/0
+          ToPort: "-1"
+          IpProtocol: "-1"
+  SGBaseIngress:
+    Type: "AWS::EC2::SecurityGroupIngress"
+    Properties:
+      IpProtocol: tcp
+      FromPort: "0"
+      ToPort: "65535"
+      SourceSecurityGroupId:
+        Fn::GetAtt:
+        - SG
+        - GroupId
+      GroupId:
+        Fn::GetAtt:
+        - SG
+        - GroupId
+  
+  KinesisInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties: 
+      Path: '/kinesis/'
+      Roles:
+        - !Ref EC2KinesisRole
+      InstanceProfileName: KinesisAgentProfile
+Outputs:
+  Endpoint:
+    Description: Application Address
+    Value: !Join ["", ["http://", !GetAtt AppELB.DNSName, "/index.php"]]
+  JumpAddress:
+    Description: IP address of Jump server
+    Value: !GetAtt JumpServer.PublicIp
